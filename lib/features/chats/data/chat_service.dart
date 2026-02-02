@@ -27,7 +27,7 @@ class ChatService {
   }
 
   Future<void> sendTextMessage({
-    required String roomId,
+    required types.Room room,
     required String text,
   }) async {
     final trimmed = text.trim();
@@ -36,8 +36,8 @@ class ChatService {
     if (user == null) return;
 
     final firestore = FirebaseFirestore.instance;
-    final messageRef =
-        firestore.collection('rooms/$roomId/messages').doc();
+    final roomId = room.id;
+    final messageRef = firestore.collection('rooms/$roomId/messages').doc();
 
     final now = FieldValue.serverTimestamp();
     final nowTimestamp = Timestamp.now();
@@ -64,11 +64,19 @@ class ChatService {
 
     final batch = firestore.batch();
     batch.set(messageRef, messageMap);
+    final roomRef = firestore.collection('rooms').doc(roomId);
+    final unreadUpdates = <String, dynamic>{};
+    for (final u in room.users) {
+      if (u.id == user.uid) continue;
+      unreadUpdates['metadata.unreadCounts.${u.id}'] =
+          FieldValue.increment(1);
+    }
     batch.update(
-      firestore.collection('rooms').doc(roomId),
+      roomRef,
       {
         'updatedAt': now,
         'lastMessages': [lastMessageMap],
+        ...unreadUpdates,
       },
     );
     await batch.commit();
@@ -101,6 +109,22 @@ class ChatService {
 
     final batch = firestore.batch();
     updates.forEach(batch.update);
+
+    final latest = messages.isNotEmpty ? messages.first : null;
+    if (latest != null &&
+        latest.author.id != user.uid &&
+        updates.containsKey(
+          firestore.collection('rooms/$roomId/messages').doc(latest.id),
+        )) {
+      batch.update(
+        firestore.collection('rooms').doc(roomId),
+        {
+          'lastMessages': [_lastMessageFrom(latest, types.Status.seen)],
+          'updatedAt': FieldValue.serverTimestamp(),
+          'metadata.unreadCounts.${user.uid}': 0,
+        },
+      );
+    }
     try {
       await batch.commit();
     } catch (e) {
@@ -129,7 +153,9 @@ class ChatService {
         continue;
       }
       _statusUpdatedMessages[last.id] = types.Status.delivered;
-      updates[firestore.collection('rooms/${room.id}/messages').doc(last.id)] =
+      final messageRef =
+          firestore.collection('rooms/${room.id}/messages').doc(last.id);
+      updates[messageRef] =
           {
         'status': types.Status.delivered.name,
         'updatedAt': FieldValue.serverTimestamp(),
@@ -140,11 +166,62 @@ class ChatService {
 
     final batch = firestore.batch();
     updates.forEach(batch.update);
+    for (final room in rooms) {
+      if (room.lastMessages == null || room.lastMessages!.isEmpty) continue;
+      final last = room.lastMessages!.first;
+      if (last.author.id == user.uid) continue;
+      if (last.status == types.Status.delivered ||
+          last.status == types.Status.seen) {
+        continue;
+      }
+      batch.update(
+        firestore.collection('rooms').doc(room.id),
+        {
+          'lastMessages': [_lastMessageFrom(last, types.Status.delivered)],
+          'updatedAt': FieldValue.serverTimestamp(),
+        },
+      );
+    }
     try {
       await batch.commit();
     } catch (e) {
       debugPrint('markLastMessagesDelivered failed: $e');
     }
+  }
+
+  Map<String, dynamic> _lastMessageFrom(
+    types.Message message,
+    types.Status status,
+  ) {
+    final createdAt = message.createdAt != null
+        ? Timestamp.fromMillisecondsSinceEpoch(message.createdAt!)
+        : Timestamp.now();
+    final updatedAt = message.updatedAt != null
+        ? Timestamp.fromMillisecondsSinceEpoch(message.updatedAt!)
+        : Timestamp.now();
+
+    if (message is types.TextMessage) {
+      return {
+        'authorId': message.author.id,
+        'createdAt': createdAt,
+        'updatedAt': updatedAt,
+        'text': message.text,
+        'type': 'text',
+        'id': message.id,
+        'status': status.name,
+        'showStatus': true,
+      };
+    }
+
+    return {
+      'authorId': message.author.id,
+      'createdAt': createdAt,
+      'updatedAt': updatedAt,
+      'type': message.type.name,
+      'id': message.id,
+      'status': status.name,
+      'showStatus': true,
+    };
   }
 
   Stream<List<types.User>> typingUsersStream(types.Room room) {

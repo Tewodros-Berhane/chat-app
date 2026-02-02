@@ -114,6 +114,8 @@ class _RoomTile extends StatelessWidget {
     final title = _roomTitle(room, currentUserId);
     final subtitle = _lastMessagePreview(room);
     final timeStamp = _roomTime(room);
+    final unreadCount = _unreadCount(room, currentUserId);
+    final lastMessage = _lastMessage(room);
     final avatarColor = colorFromId(room.id);
 
     return InkWell(
@@ -162,23 +164,57 @@ class _RoomTile extends StatelessWidget {
                     overflow: TextOverflow.ellipsis,
                   ),
                   const SizedBox(height: 4),
-                  Text(
-                    subtitle,
-                    style: theme.textTheme.bodyMedium?.copyWith(
-                      color: theme.colorScheme.onSurface.withAlpha(166),
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
+                  Row(
+                    children: [
+                      if (lastMessage != null &&
+                          lastMessage.author.id == currentUserId)
+                        Padding(
+                          padding: const EdgeInsets.only(right: 6),
+                          child: _statusIcon(theme, lastMessage.status),
+                        ),
+                      Expanded(
+                        child: Text(
+                          subtitle,
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            color: theme.colorScheme.onSurface.withAlpha(166),
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ],
                   ),
                 ],
               ),
             ),
             const SizedBox(width: 12),
-            Text(
-              timeStamp,
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: theme.colorScheme.onSurface.withAlpha(128),
-              ),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Text(
+                  timeStamp,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.onSurface.withAlpha(128),
+                  ),
+                ),
+                const SizedBox(height: 6),
+                if (unreadCount > 0)
+                  Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: theme.colorScheme.primary,
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                    child: Text(
+                      unreadCount > 99 ? '99+' : unreadCount.toString(),
+                      style: theme.textTheme.labelSmall?.copyWith(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+              ],
             ),
           ],
         ),
@@ -203,9 +239,7 @@ class _RoomTile extends StatelessWidget {
   }
 
   String _lastMessagePreview(types.Room room) {
-    final last = room.lastMessages?.isNotEmpty == true
-        ? room.lastMessages!.first
-        : null;
+    final last = _lastMessage(room);
 
     if (last == null) return 'Start the conversation';
 
@@ -216,10 +250,70 @@ class _RoomTile extends StatelessWidget {
   }
 
   String _roomTime(types.Room room) {
+    final last = _lastMessage(room);
+    return formatCompactTime(room.updatedAt ?? last?.createdAt);
+  }
+
+  int _unreadCount(types.Room room, String? currentUserId) {
+    if (currentUserId == null) return 0;
+    final data = room.metadata;
+    if (data is Map<String, dynamic>) {
+      final counts = data['unreadCounts'];
+      if (counts is Map<String, dynamic>) {
+        final raw = counts[currentUserId];
+        if (raw is int) return raw;
+      }
+    }
     final last = room.lastMessages?.isNotEmpty == true
         ? room.lastMessages!.first
         : null;
-    return formatCompactTime(room.updatedAt ?? last?.createdAt);
+    if (last == null) return 0;
+    if (last.author.id == currentUserId) return 0;
+    return last.status != types.Status.seen ? 1 : 0;
+  }
+
+  types.Message? _lastMessage(types.Room room) {
+    return room.lastMessages?.isNotEmpty == true
+        ? room.lastMessages!.first
+        : null;
+  }
+
+  Widget _statusIcon(ThemeData theme, types.Status? status) {
+    final muted = theme.colorScheme.onSurface.withAlpha(140);
+    switch (status) {
+      case types.Status.sent:
+        return Icon(
+          Icons.done_rounded,
+          size: 16,
+          color: muted,
+        );
+      case types.Status.delivered:
+        return Icon(
+          Icons.done_all_rounded,
+          size: 16,
+          color: muted,
+        );
+      case types.Status.seen:
+        return const Icon(
+          Icons.done_all_rounded,
+          size: 16,
+          color: Color(0xFF7DD3FC),
+        );
+      case types.Status.sending:
+        return Icon(
+          Icons.schedule_rounded,
+          size: 14,
+          color: muted,
+        );
+      case types.Status.error:
+        return Icon(
+          Icons.error_outline_rounded,
+          size: 16,
+          color: muted,
+        );
+      default:
+        return const SizedBox(width: 16);
+    }
   }
 }
 

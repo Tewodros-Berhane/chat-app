@@ -359,7 +359,7 @@ class _MessagesViewState extends State<_MessagesView> {
               },
               onSendPressed: (partial) {
                 ChatService.instance.sendTextMessage(
-                  roomId: widget.room.id,
+                  room: widget.room,
                   text: partial.text,
                 );
                 ChatService.instance.setTyping(
