@@ -372,6 +372,8 @@ class _MessagesViewState extends State<_MessagesView> {
                 primaryColor: AppColors.primary,
                 secondaryColor: Colors.white,
                 backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+                bubbleMargin:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
                 inputBackgroundColor: Colors.white,
                 inputBorderRadius: BorderRadius.circular(24),
                 inputTextColor: Theme.of(context).colorScheme.onSurface,
