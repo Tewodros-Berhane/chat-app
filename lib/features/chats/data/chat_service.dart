@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_chat_types/flutter_chat_types.dart' as types;
 import 'package:flutter_firebase_chat_core/flutter_firebase_chat_core.dart';
 
@@ -7,7 +8,7 @@ class ChatService {
   ChatService._();
 
   static final ChatService instance = ChatService._();
-  final Set<String> _statusUpdatedMessages = {};
+  final Map<String, types.Status> _statusUpdatedMessages = {};
 
   Stream<List<types.Room>> roomsStream() {
     return FirebaseChatCore.instance.rooms(orderByUpdatedAt: false);
@@ -86,9 +87,9 @@ class ChatService {
     for (final message in messages) {
       if (message.author.id == user.uid) continue;
       if (message.status == types.Status.seen) continue;
-      if (_statusUpdatedMessages.contains(message.id)) continue;
-
-      _statusUpdatedMessages.add(message.id);
+      final tracked = _statusUpdatedMessages[message.id];
+      if (tracked == types.Status.seen) continue;
+      _statusUpdatedMessages[message.id] = types.Status.seen;
       updates[firestore.collection('rooms/$roomId/messages').doc(message.id)] =
           {
         'status': types.Status.seen.name,
@@ -100,7 +101,11 @@ class ChatService {
 
     final batch = firestore.batch();
     updates.forEach(batch.update);
-    await batch.commit();
+    try {
+      await batch.commit();
+    } catch (e) {
+      debugPrint('markMessagesSeen failed: $e');
+    }
   }
 
   Future<void> markLastMessagesDelivered(List<types.Room> rooms) async {
@@ -118,9 +123,12 @@ class ChatService {
           last.status == types.Status.seen) {
         continue;
       }
-      if (_statusUpdatedMessages.contains(last.id)) continue;
-
-      _statusUpdatedMessages.add(last.id);
+      final tracked = _statusUpdatedMessages[last.id];
+      if (tracked == types.Status.delivered ||
+          tracked == types.Status.seen) {
+        continue;
+      }
+      _statusUpdatedMessages[last.id] = types.Status.delivered;
       updates[firestore.collection('rooms/${room.id}/messages').doc(last.id)] =
           {
         'status': types.Status.delivered.name,
@@ -132,7 +140,11 @@ class ChatService {
 
     final batch = firestore.batch();
     updates.forEach(batch.update);
-    await batch.commit();
+    try {
+      await batch.commit();
+    } catch (e) {
+      debugPrint('markLastMessagesDelivered failed: $e');
+    }
   }
 
   Future<void> repairRoomsForCurrentUser() async {

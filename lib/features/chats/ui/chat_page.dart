@@ -101,6 +101,66 @@ class _MessagesView extends StatelessWidget {
 
   final types.Room room;
 
+  String _formatMessageTime(int? milliseconds) {
+    if (milliseconds == null) return '';
+    final date = DateTime.fromMillisecondsSinceEpoch(milliseconds);
+    final hour = date.hour.toString().padLeft(2, '0');
+    final minute = date.minute.toString().padLeft(2, '0');
+    return '$hour:$minute';
+  }
+
+  Widget _statusIcon(types.Status? status) {
+    switch (status) {
+      case types.Status.sent:
+        return const Icon(
+          Icons.done_rounded,
+          size: 14,
+          color: Colors.white,
+        );
+      case types.Status.delivered:
+        return const Icon(
+          Icons.done_all_rounded,
+          size: 14,
+          color: Colors.white,
+        );
+      case types.Status.seen:
+        return const Icon(
+          Icons.done_all_rounded,
+          size: 14,
+          color: Color(0xFF7DD3FC),
+        );
+      case types.Status.sending:
+        return const SizedBox(
+          width: 10,
+          height: 10,
+          child: CircularProgressIndicator(
+            strokeWidth: 1.3,
+            valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+          ),
+        );
+      case types.Status.error:
+        return const Icon(
+          Icons.error_outline_rounded,
+          size: 14,
+          color: Colors.white,
+        );
+      default:
+        return const SizedBox.shrink();
+    }
+  }
+
+  double _dynamicMaxWidth(
+    BuildContext context,
+    types.Message message,
+    double baseMaxWidth,
+  ) {
+    if (message is! types.TextMessage) return baseMaxWidth;
+    final length = message.text.length;
+    final clamped = length.clamp(4, 120);
+    final estimated = 120 + (clamped * 6.2);
+    return estimated > baseMaxWidth ? baseMaxWidth : estimated;
+  }
+
   @override
   Widget build(BuildContext context) {
     final authUser = FirebaseAuth.instance.currentUser;
@@ -124,46 +184,67 @@ class _MessagesView extends StatelessWidget {
             messages: messages,
           );
         }
+        final screenWidth = MediaQuery.of(context).size.width;
+        final widthRatio = screenWidth < 480
+            ? 0.74
+            : screenWidth < 900
+                ? 0.62
+                : 0.52;
+
         return Chat(
           messages: messages,
-          customStatusBuilder: (message, {required BuildContext context}) {
-            switch (message.status) {
-              case types.Status.sent:
-                return const Icon(
-                  Icons.done_rounded,
-                  size: 16,
-                  color: Colors.white,
-                );
-              case types.Status.delivered:
-                return const Icon(
-                  Icons.done_all_rounded,
-                  size: 16,
-                  color: Colors.white,
-                );
-              case types.Status.seen:
-                return const Icon(
-                  Icons.done_all_rounded,
-                  size: 16,
-                  color: Color(0xFF7DD3FC),
-                );
-              case types.Status.sending:
-                return const SizedBox(
-                  width: 10,
-                  height: 10,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 1.5,
-                    valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                  ),
-                );
-              case types.Status.error:
-                return const Icon(
-                  Icons.error_outline_rounded,
-                  size: 16,
-                  color: Colors.white,
-                );
-              default:
-                return const SizedBox.shrink();
-            }
+          messageWidthRatio: widthRatio,
+          customStatusBuilder: (_, {required BuildContext context}) =>
+              const SizedBox.shrink(),
+          textMessageBuilder: (message,
+              {required int messageWidth, required bool showName}) {
+            final isMe = message.author.id == user.id;
+            final time = _formatMessageTime(message.createdAt);
+            final textColor = isMe ? Colors.white : AppColors.ink;
+            final metaColor = isMe
+                ? Colors.white.withAlpha(200)
+                : Theme.of(context).colorScheme.onSurface.withAlpha(140);
+            final baseMax = MediaQuery.of(context).size.width * widthRatio;
+            final maxWidth = _dynamicMaxWidth(context, message, baseMax);
+
+            return ConstrainedBox(
+              constraints: BoxConstraints(maxWidth: maxWidth),
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 12, 12, 8),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      message.text,
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                            color: textColor,
+                          ),
+                    ),
+                    const SizedBox(height: 6),
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            time,
+                            style:
+                                Theme.of(context).textTheme.bodySmall?.copyWith(
+                                      color: metaColor,
+                                      fontSize: 11,
+                                    ),
+                          ),
+                          if (isMe) ...[
+                            const SizedBox(width: 4),
+                            _statusIcon(message.status),
+                          ],
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
           },
           onSendPressed: (partial) {
             ChatService.instance.sendTextMessage(
@@ -182,6 +263,7 @@ class _MessagesView extends StatelessWidget {
             sendButtonIcon: const Icon(Icons.send_rounded),
             messageBorderRadius: 22,
             attachmentButtonIcon: const Icon(Icons.add_rounded),
+            statusIconPadding: EdgeInsets.zero,
           ),
           showUserAvatars: false,
           showUserNames: false,
