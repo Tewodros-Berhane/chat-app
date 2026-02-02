@@ -32,6 +32,7 @@ class UserService {
         'email': email,
         'searchName': nameLower,
         'searchEmail': emailLower,
+        'isOnline': true,
         'createdAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
         'lastSeen': FieldValue.serverTimestamp(),
@@ -44,6 +45,7 @@ class UserService {
       'email': email,
       'searchEmail': emailLower,
       'imageUrl': user.photoURL,
+      'isOnline': true,
       'lastSeen': FieldValue.serverTimestamp(),
       'updatedAt': FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));
@@ -63,6 +65,17 @@ class UserService {
     await _users.doc(uid).set({
       'lastSeen': FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));
+  }
+
+  Future<void> setOnlineStatus(String uid, bool isOnline) async {
+    await _users.doc(uid).set({
+      'isOnline': isOnline,
+      if (!isOnline) 'lastSeen': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+  }
+
+  Stream<Map<String, dynamic>?> userDocStream(String uid) {
+    return _users.doc(uid).snapshots().map((doc) => doc.data());
   }
 
   Future<bool> isProfileComplete(String uid) async {

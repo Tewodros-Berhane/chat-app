@@ -147,6 +147,47 @@ class ChatService {
     }
   }
 
+  Stream<List<types.User>> typingUsersStream(types.Room room) {
+    final currentUserId = FirebaseAuth.instance.currentUser?.uid;
+    final roomRef = FirebaseFirestore.instance.collection('rooms').doc(room.id);
+
+    return roomRef.snapshots().map((doc) {
+      final data = doc.data();
+      final typing = (data?['typing'] as Map<String, dynamic>?) ?? {};
+      final typingAt = (data?['typingAt'] as Map<String, dynamic>?) ?? {};
+      final now = DateTime.now();
+
+      return room.users.where((user) {
+        if (user.id == currentUserId) return false;
+        final isTyping = typing[user.id] == true;
+        if (!isTyping) return false;
+        final raw = typingAt[user.id];
+        DateTime? at;
+        if (raw is Timestamp) {
+          at = raw.toDate();
+        } else if (raw is int) {
+          at = DateTime.fromMillisecondsSinceEpoch(raw);
+        }
+        if (at == null) return true;
+        return now.difference(at).inSeconds <= 6;
+      }).toList();
+    });
+  }
+
+  Future<void> setTyping({
+    required String roomId,
+    required bool isTyping,
+  }) async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    final roomRef = FirebaseFirestore.instance.collection('rooms').doc(roomId);
+    await roomRef.update({
+      'typing.${user.uid}': isTyping,
+      if (isTyping) 'typingAt.${user.uid}': FieldValue.serverTimestamp(),
+    });
+  }
+
   Future<void> repairRoomsForCurrentUser() async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;

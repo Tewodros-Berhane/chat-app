@@ -34,6 +34,7 @@ class AuthService {
   Future<void> signOut() async {
     final user = _auth.currentUser;
     if (user != null) {
+      await UserService.instance.setOnlineStatus(user.uid, false);
       await UserService.instance.updateLastSeen(user.uid);
       UserService.instance.invalidateProfileCache(user.uid);
     }
