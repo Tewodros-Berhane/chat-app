@@ -43,6 +43,7 @@ class ChatPage extends StatelessWidget {
         final otherUserId = _otherUserId(activeRoom);
 
         return Scaffold(
+          backgroundColor: const Color(0xFFECE5DD),
           appBar: AppBar(
             leading: IconButton(
               onPressed: () {
@@ -55,6 +56,18 @@ class ChatPage extends StatelessWidget {
               icon: const Icon(Icons.arrow_back_rounded),
               tooltip: 'Back',
             ),
+            actions: [
+              IconButton(
+                onPressed: () {},
+                icon: const Icon(Icons.videocam_outlined),
+                tooltip: 'Video',
+              ),
+              IconButton(
+                onPressed: () {},
+                icon: const Icon(Icons.call_outlined),
+                tooltip: 'Call',
+              ),
+            ],
             title: Row(
               children: [
                 CircleAvatar(
@@ -187,19 +200,19 @@ class _MessagesViewState extends State<_MessagesView> {
         return const Icon(
           Icons.done_rounded,
           size: 14,
-          color: Colors.white,
+          color: Color(0xFF9AA0A6),
         );
       case types.Status.delivered:
         return const Icon(
           Icons.done_all_rounded,
           size: 14,
-          color: Colors.white,
+          color: Color(0xFF9AA0A6),
         );
       case types.Status.seen:
         return const Icon(
           Icons.done_all_rounded,
           size: 14,
-          color: Color(0xFF7DD3FC),
+          color: Color(0xFF53BDEB),
         );
       case types.Status.sending:
         return const SizedBox(
@@ -388,6 +401,27 @@ class _MessagesViewState extends State<_MessagesView> {
             return Chat(
               messages: messages,
               messageWidthRatio: widthRatio,
+              bubbleBuilder: (child,
+                  {required types.Message message,
+                  required bool nextMessageInGroup}) {
+                final isMe = message.author.id == user.id;
+                final color =
+                    isMe ? const Color(0xFFDCF8C6) : Colors.white;
+                return Container(
+                  decoration: BoxDecoration(
+                    color: color,
+                    borderRadius: BorderRadius.circular(16),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withAlpha(12),
+                        blurRadius: 6,
+                        offset: const Offset(0, 3),
+                      ),
+                    ],
+                  ),
+                  child: child,
+                );
+              },
               onMessageLongPress: (context, message) =>
                   _showMessageActions(message, messages),
               inputOptions: InputOptions(
@@ -486,10 +520,9 @@ class _MessagesViewState extends State<_MessagesView> {
                   {required int messageWidth, required bool showName}) {
                 final isMe = message.author.id == user.id;
                 final time = _formatMessageTime(message.createdAt);
-                final textColor = isMe ? Colors.white : AppColors.ink;
-                final metaColor = isMe
-                    ? Colors.white.withAlpha(200)
-                    : Theme.of(context).colorScheme.onSurface.withAlpha(140);
+                final textColor = AppColors.ink;
+                final metaColor =
+                    Theme.of(context).colorScheme.onSurface.withAlpha(140);
                 final baseMax = MediaQuery.of(context).size.width * widthRatio;
                 final maxWidth = _dynamicMaxWidth(context, message, baseMax);
                 final reply = message.metadata?['replyTo'];
@@ -514,9 +547,7 @@ class _MessagesViewState extends State<_MessagesView> {
                             margin: const EdgeInsets.only(bottom: 6),
                             padding: const EdgeInsets.fromLTRB(10, 6, 10, 6),
                             decoration: BoxDecoration(
-                              color: isMe
-                                  ? Colors.white.withAlpha(40)
-                                  : Colors.black.withAlpha(12),
+                              color: const Color(0xFFE7F3E0),
                               borderRadius: BorderRadius.circular(10),
                             ),
                             child: Column(
@@ -529,9 +560,7 @@ class _MessagesViewState extends State<_MessagesView> {
                                       .labelSmall
                                       ?.copyWith(
                                         fontWeight: FontWeight.w700,
-                                        color: isMe
-                                            ? Colors.white
-                                            : AppColors.ink,
+                                        color: AppColors.ink,
                                       ),
                                 ),
                                 const SizedBox(height: 2),
@@ -543,9 +572,7 @@ class _MessagesViewState extends State<_MessagesView> {
                                       .textTheme
                                       .bodySmall
                                       ?.copyWith(
-                                        color: isMe
-                                            ? Colors.white.withAlpha(200)
-                                            : AppColors.ink,
+                                        color: AppColors.ink,
                                       ),
                                 ),
                               ],
@@ -627,17 +654,28 @@ class _MessagesViewState extends State<_MessagesView> {
               },
               user: user,
               theme: DefaultChatTheme(
-                primaryColor: AppColors.primary,
+                primaryColor: const Color(0xFFDCF8C6),
                 secondaryColor: Colors.white,
-                backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+                backgroundColor: const Color(0xFFECE5DD),
                 bubbleMargin:
                     const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
                 inputBackgroundColor: Colors.white,
                 inputBorderRadius: BorderRadius.circular(24),
                 inputTextColor: Theme.of(context).colorScheme.onSurface,
-                sendButtonIcon: const Icon(Icons.send_rounded),
-                messageBorderRadius: 22,
-                attachmentButtonIcon: const Icon(Icons.add_rounded),
+                inputContainerDecoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(24),
+                  border: Border.all(
+                    color: Theme.of(context).colorScheme.outlineVariant,
+                  ),
+                ),
+                inputMargin: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+                inputPadding: const EdgeInsets.fromLTRB(12, 10, 10, 10),
+                sendButtonIcon: const Icon(Icons.mic_rounded),
+                sendButtonMargin: const EdgeInsets.only(left: 8),
+                messageBorderRadius: 16,
+                attachmentButtonIcon: const Icon(Icons.add),
+                attachmentButtonMargin: const EdgeInsets.only(right: 6),
                 statusIconPadding: EdgeInsets.zero,
               ),
               showUserAvatars: false,
