@@ -127,6 +127,7 @@ class _ChatsPageState extends State<ChatsPage> {
       ),
       bottomNavigationBar: _BottomBar(
         onChatsTap: () {},
+        onSettingsTap: () => context.push('/settings'),
       ),
     );
   }
@@ -335,9 +336,10 @@ class _RoomTile extends StatelessWidget {
 }
 
 class _BottomBar extends StatelessWidget {
-  const _BottomBar({required this.onChatsTap});
+  const _BottomBar({required this.onChatsTap, required this.onSettingsTap});
 
   final VoidCallback onChatsTap;
+  final VoidCallback onSettingsTap;
 
   @override
   Widget build(BuildContext context) {
@@ -347,6 +349,7 @@ class _BottomBar extends StatelessWidget {
       currentIndex: 2,
       onTap: (index) {
         if (index == 2) onChatsTap();
+        if (index == 4) onSettingsTap();
       },
       selectedItemColor: theme.colorScheme.primary,
       unselectedItemColor: theme.colorScheme.onSurface.withAlpha(140),

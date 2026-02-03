@@ -1,0 +1,18 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isRoomMember(roomId) {
+      return isSignedIn() && request.auth.uid in
+        get(/databases/$(database)/documents/rooms/$(roomId)).data.userIds;
+    }
+
+    match /chat_uploads/{roomId}/{userId}/{allPaths=**} {
+      allow read: if isRoomMember(roomId);
+      allow write: if isSignedIn() && request.auth.uid == userId;
+    }
+  }
+}

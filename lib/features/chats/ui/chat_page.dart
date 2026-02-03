@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:emoji_picker_flutter/emoji_picker_flutter.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_chat_types/flutter_chat_types.dart' as types;
@@ -178,11 +179,28 @@ class _MessagesView extends StatefulWidget {
 class _MessagesViewState extends State<_MessagesView> {
   Timer? _typingTimer;
   types.Message? _replyTo;
+  final _textController = TextEditingController();
+  final _textFocusNode = FocusNode();
+  bool _showEmojiPicker = false;
+  bool _canSend = false;
+  static const double _inputBarHeight = 64;
+  static const double _emojiPanelHeight = 280;
+  late final Stream<List<types.Message>> _messagesStream;
+  late final Stream<List<types.User>> _typingUsersStream;
+
+  @override
+  void initState() {
+    super.initState();
+    _messagesStream = ChatService.instance.messagesStream(widget.room);
+    _typingUsersStream = ChatService.instance.typingUsersStream(widget.room);
+  }
 
   @override
   void dispose() {
     _typingTimer?.cancel();
     ChatService.instance.setTyping(roomId: widget.room.id, isTyping: false);
+    _textController.dispose();
+    _textFocusNode.dispose();
     super.dispose();
   }
 
@@ -244,6 +262,76 @@ class _MessagesViewState extends State<_MessagesView> {
     setState(() {
       _replyTo = null;
     });
+  }
+
+  void _handleTextChanged(String value) {
+    final trimmed = value.trim();
+    if (_canSend != (trimmed.isNotEmpty)) {
+      setState(() => _canSend = trimmed.isNotEmpty);
+    }
+
+    if (trimmed.isNotEmpty) {
+      ChatService.instance.setTyping(
+        roomId: widget.room.id,
+        isTyping: true,
+      );
+      _typingTimer?.cancel();
+      _typingTimer = Timer(const Duration(seconds: 2), () {
+        ChatService.instance.setTyping(
+          roomId: widget.room.id,
+          isTyping: false,
+        );
+      });
+    } else {
+      ChatService.instance.setTyping(
+        roomId: widget.room.id,
+        isTyping: false,
+      );
+    }
+  }
+
+  void _sendCurrentText() {
+    final trimmed = _textController.text.trim();
+    if (trimmed.isEmpty) return;
+    final replyTo = _replyTo;
+    ChatService.instance.sendTextMessage(
+      room: widget.room,
+      text: trimmed,
+      replyTo: replyTo is types.TextMessage
+          ? {
+              'id': replyTo.id,
+              'text': replyTo.text,
+              'authorId': replyTo.author.id,
+              'authorName': replyTo.author.firstName ?? 'User',
+            }
+          : null,
+    );
+    _textController.clear();
+    setState(() => _canSend = false);
+    _clearAction();
+    ChatService.instance.setTyping(
+      roomId: widget.room.id,
+      isTyping: false,
+    );
+  }
+
+  void _toggleEmojiPicker() {
+    if (_showEmojiPicker) {
+      setState(() => _showEmojiPicker = false);
+      _textFocusNode.requestFocus();
+    } else {
+      FocusManager.instance.primaryFocus?.unfocus();
+      setState(() => _showEmojiPicker = true);
+    }
+  }
+
+  Future<void> _handleAttachment() async {
+    // TODO: Implement attachment picking + upload once Firebase Storage
+    // is enabled for this project.
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Attachments coming soon.')),
+    );
   }
 
   Future<void> _handleDelete(types.TextMessage message, bool isLast) async {
@@ -371,9 +459,10 @@ class _MessagesViewState extends State<_MessagesView> {
       firstName: authUser?.displayName,
       imageUrl: authUser?.photoURL,
     );
+    final theme = Theme.of(context);
 
     return StreamBuilder<List<types.Message>>(
-      stream: ChatService.instance.messagesStream(widget.room),
+      stream: _messagesStream,
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
@@ -394,14 +483,84 @@ class _MessagesViewState extends State<_MessagesView> {
                 : 0.52;
 
         return StreamBuilder<List<types.User>>(
-          stream: ChatService.instance.typingUsersStream(widget.room),
+          stream: _typingUsersStream,
           builder: (context, typingSnapshot) {
             final typingUsers = typingSnapshot.data ?? [];
 
-            return Chat(
-              messages: messages,
-              messageWidthRatio: widthRatio,
-              bubbleBuilder: (child,
+            return Stack(
+              children: [
+                Chat(
+                  messages: messages,
+                  messageWidthRatio: widthRatio,
+                  customBottomWidget: _ChatInputBar(
+                    controller: _textController,
+                    focusNode: _textFocusNode,
+                    canSend: _canSend,
+                    showEmojiPicker: _showEmojiPicker,
+                    onAttachmentPressed: _handleAttachment,
+                    onEmojiPressed: _toggleEmojiPicker,
+                    onSendPressed: _sendCurrentText,
+                    onTextChanged: _handleTextChanged,
+                    onTextFieldTap: () {
+                      if (_showEmojiPicker) {
+                        setState(() => _showEmojiPicker = false);
+                      }
+                    },
+                  ),
+                  listBottomWidget: _replyTo != null
+                      ? Padding(
+                          padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
+                          child: Container(
+                            padding: const EdgeInsets.fromLTRB(14, 10, 8, 10),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(16),
+                              border: Border.all(
+                                color: theme.colorScheme.outlineVariant,
+                              ),
+                            ),
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        'Replying to ${_replyTo?.author.firstName ?? 'Message'}',
+                                        style:
+                                            theme.textTheme.labelSmall?.copyWith(
+                                          fontWeight: FontWeight.w700,
+                                          color: AppColors.primary,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        _replyTo is types.TextMessage
+                                            ? (_replyTo as types.TextMessage)
+                                                .text
+                                            : 'Message',
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style:
+                                            theme.textTheme.bodySmall?.copyWith(
+                                          color: theme.colorScheme.onSurface
+                                              .withAlpha(160),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                IconButton(
+                                  onPressed: _clearAction,
+                                  icon: const Icon(Icons.close_rounded),
+                                ),
+                              ],
+                            ),
+                          ),
+                        )
+                      : null,
+                  bubbleBuilder: (child,
                   {required types.Message message,
                   required bool nextMessageInGroup}) {
                 final isMe = message.author.id == user.id;
@@ -422,100 +581,29 @@ class _MessagesViewState extends State<_MessagesView> {
                   child: child,
                 );
               },
-              onMessageLongPress: (context, message) =>
-                  _showMessageActions(message, messages),
-              inputOptions: InputOptions(
-                onTextChanged: (value) {
-                  final trimmed = value.trim();
-                  if (trimmed.isNotEmpty) {
-                    ChatService.instance.setTyping(
-                      roomId: widget.room.id,
-                      isTyping: true,
-                    );
-                    _typingTimer?.cancel();
-                    _typingTimer = Timer(const Duration(seconds: 2), () {
-                      ChatService.instance.setTyping(
-                        roomId: widget.room.id,
-                        isTyping: false,
-                      );
-                    });
-                  } else {
-                    ChatService.instance.setTyping(
-                      roomId: widget.room.id,
-                      isTyping: false,
-                    );
-                  }
-                },
-              ),
-              typingIndicatorOptions: TypingIndicatorOptions(
-                typingUsers: typingUsers,
-                typingWidgetBuilder: ({
-                  required BuildContext context,
-                  required TypingIndicator widget,
-                  required TypingIndicatorMode mode,
-                }) =>
-                    const SizedBox.shrink(),
-              ),
-              listBottomWidget: _replyTo != null
-                  ? Padding(
-                      padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
-                      child: Container(
-                        padding: const EdgeInsets.fromLTRB(14, 10, 8, 10),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(16),
-                          border: Border.all(
-                            color:
-                                Theme.of(context).colorScheme.outlineVariant,
-                          ),
-                        ),
-                        child: Row(
-                          children: [
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    'Replying to ${_replyTo?.author.firstName ?? 'Message'}',
-                                    style: Theme.of(context)
-                                        .textTheme
-                                        .labelSmall
-                                        ?.copyWith(
-                                          fontWeight: FontWeight.w700,
-                                          color: AppColors.primary,
-                                        ),
-                                  ),
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    _replyTo is types.TextMessage
-                                        ? (_replyTo as types.TextMessage).text
-                                        : 'Message',
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: Theme.of(context)
-                                        .textTheme
-                                        .bodySmall
-                                        ?.copyWith(
-                                          color: Theme.of(context)
-                                              .colorScheme
-                                              .onSurface
-                                              .withAlpha(160),
-                                        ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            IconButton(
-                              onPressed: _clearAction,
-                              icon: const Icon(Icons.close_rounded),
-                            ),
-                          ],
-                        ),
-                      ),
-                    )
-                  : null,
-              customStatusBuilder: (_, {required BuildContext context}) =>
-                  const SizedBox.shrink(),
+                  onMessageLongPress: (context, message) =>
+                      _showMessageActions(message, messages),
+                  onBackgroundTap: () {
+                    if (_showEmojiPicker) {
+                      setState(() => _showEmojiPicker = false);
+                    }
+                  },
+                  inputOptions: InputOptions(
+                    onTextChanged: (value) {
+                      _handleTextChanged(value);
+                    },
+                  ),
+                  typingIndicatorOptions: TypingIndicatorOptions(
+                    typingUsers: typingUsers,
+                    typingWidgetBuilder: ({
+                      required BuildContext context,
+                      required TypingIndicator widget,
+                      required TypingIndicatorMode mode,
+                    }) =>
+                        const SizedBox.shrink(),
+                  ),
+                  customStatusBuilder: (_, {required BuildContext context}) =>
+                      const SizedBox.shrink(),
               textMessageBuilder: (message,
                   {required int messageWidth, required bool showName}) {
                 final isMe = message.author.id == user.id;
@@ -630,30 +718,9 @@ class _MessagesViewState extends State<_MessagesView> {
                   ),
                 );
               },
-              onSendPressed: (partial) {
-                final trimmed = partial.text.trim();
-                if (trimmed.isEmpty) return;
-                final replyTo = _replyTo;
-                ChatService.instance.sendTextMessage(
-                  room: widget.room,
-                  text: trimmed,
-                  replyTo: replyTo is types.TextMessage
-                      ? {
-                          'id': replyTo.id,
-                          'text': replyTo.text,
-                          'authorId': replyTo.author.id,
-                          'authorName': replyTo.author.firstName ?? 'User',
-                        }
-                      : null,
-                );
-                _clearAction();
-                ChatService.instance.setTyping(
-                  roomId: widget.room.id,
-                  isTyping: false,
-                );
-              },
-              user: user,
-              theme: DefaultChatTheme(
+                  onSendPressed: (_) => _sendCurrentText(),
+                  user: user,
+                  theme: DefaultChatTheme(
                 primaryColor: const Color(0xFFDCF8C6),
                 secondaryColor: Colors.white,
                 backgroundColor: const Color(0xFFECE5DD),
@@ -665,12 +732,14 @@ class _MessagesViewState extends State<_MessagesView> {
                 inputContainerDecoration: BoxDecoration(
                   color: Colors.white,
                   borderRadius: BorderRadius.circular(24),
-                  border: Border.all(
-                    color: Theme.of(context).colorScheme.outlineVariant,
-                  ),
                 ),
                 inputMargin: const EdgeInsets.fromLTRB(12, 8, 12, 12),
                 inputPadding: const EdgeInsets.fromLTRB(12, 10, 10, 10),
+                inputTextDecoration: const InputDecoration(
+                  border: InputBorder.none,
+                  isCollapsed: true,
+                  contentPadding: EdgeInsets.symmetric(vertical: 10),
+                ),
                 sendButtonIcon: const Icon(Icons.mic_rounded),
                 sendButtonMargin: const EdgeInsets.only(left: 8),
                 messageBorderRadius: 16,
@@ -678,12 +747,160 @@ class _MessagesViewState extends State<_MessagesView> {
                 attachmentButtonMargin: const EdgeInsets.only(right: 6),
                 statusIconPadding: EdgeInsets.zero,
               ),
-              showUserAvatars: false,
-              showUserNames: false,
+                  showUserAvatars: false,
+                  showUserNames: false,
+                ),
+                if (_showEmojiPicker)
+                  Positioned(
+                    left: 0,
+                    right: 0,
+                    bottom: _inputBarHeight,
+                    child: SizedBox(
+                      height: _emojiPanelHeight,
+                      child: EmojiPicker(
+                        onEmojiSelected: (category, emoji) {
+                          _textController.text += emoji.emoji;
+                          _textController.selection =
+                              TextSelection.fromPosition(
+                            TextPosition(offset: _textController.text.length),
+                          );
+                          _handleTextChanged(_textController.text);
+                        },
+                        onBackspacePressed: () {
+                          final text = _textController.text;
+                          if (text.isEmpty) return;
+                          _textController.text =
+                              text.characters.skipLast(1).toString();
+                          _textController.selection =
+                              TextSelection.fromPosition(
+                            TextPosition(offset: _textController.text.length),
+                          );
+                          _handleTextChanged(_textController.text);
+                        },
+                        config: const Config(
+                          emojiViewConfig: EmojiViewConfig(
+                            columns: 8,
+                            emojiSizeMax: 28,
+                            verticalSpacing: 0,
+                            horizontalSpacing: 0,
+                            backgroundColor: Color(0xFFF6F6F8),
+                            recentsLimit: 28,
+                            noRecents: Text(
+                              'No recent emojis',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Color(0xFF9AA0A6),
+                              ),
+                            ),
+                          ),
+                          categoryViewConfig: CategoryViewConfig(
+                            initCategory: Category.SMILEYS,
+                            recentTabBehavior: RecentTabBehavior.RECENT,
+                            backgroundColor: Color(0xFFF6F6F8),
+                            indicatorColor: Color(0xFF25D366),
+                            iconColor: Color(0xFF9AA0A6),
+                            iconColorSelected: Color(0xFF25D366),
+                            backspaceColor: Color(0xFF25D366),
+                          ),
+                          skinToneConfig: SkinToneConfig(),
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
             );
           },
         );
       },
+    );
+  }
+}
+
+class _ChatInputBar extends StatelessWidget {
+  const _ChatInputBar({
+    required this.controller,
+    required this.focusNode,
+    required this.canSend,
+    required this.showEmojiPicker,
+    required this.onAttachmentPressed,
+    required this.onEmojiPressed,
+    required this.onSendPressed,
+    required this.onTextChanged,
+    required this.onTextFieldTap,
+  });
+
+  final TextEditingController controller;
+  final FocusNode focusNode;
+  final bool canSend;
+  final bool showEmojiPicker;
+  final VoidCallback onAttachmentPressed;
+  final VoidCallback onEmojiPressed;
+  final VoidCallback onSendPressed;
+  final ValueChanged<String> onTextChanged;
+  final VoidCallback onTextFieldTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final insets = MediaQuery.of(context).viewInsets.bottom;
+
+    return Padding(
+      padding: EdgeInsets.fromLTRB(12, 8, 12, insets > 0 ? 8 : 12),
+      child: Material(
+        color: Colors.white,
+        elevation: 0,
+        borderRadius: BorderRadius.circular(24),
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(6, 6, 6, 6),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(24),
+          ),
+          child: Row(
+            children: [
+              IconButton(
+                onPressed: onAttachmentPressed,
+                icon: const Icon(Icons.add),
+                color: theme.colorScheme.onSurface.withAlpha(160),
+              ),
+              IconButton(
+                onPressed: onEmojiPressed,
+                icon: Icon(
+                  showEmojiPicker
+                      ? Icons.keyboard_rounded
+                      : Icons.emoji_emotions_outlined,
+                ),
+                color: theme.colorScheme.onSurface.withAlpha(160),
+              ),
+              Expanded(
+                child: TextField(
+                  controller: controller,
+                  focusNode: focusNode,
+                  onChanged: onTextChanged,
+                  onTap: onTextFieldTap,
+                  minLines: 1,
+                  maxLines: 5,
+                  decoration: const InputDecoration(
+                    hintText: 'Message',
+                    border: InputBorder.none,
+                    isCollapsed: true,
+                    contentPadding: EdgeInsets.symmetric(vertical: 12),
+                  ),
+                ),
+              ),
+              IconButton(
+                onPressed: canSend ? onSendPressed : null,
+                icon: Icon(
+                  canSend ? Icons.send_rounded : Icons.mic_rounded,
+                ),
+                color: canSend
+                    ? theme.colorScheme.primary
+                    : theme.colorScheme.onSurface.withAlpha(150),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }

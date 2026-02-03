@@ -1,8 +1,11 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_chat_types/flutter_chat_types.dart' as types;
 import 'package:flutter_firebase_chat_core/flutter_firebase_chat_core.dart';
+import 'package:file_picker/file_picker.dart';
+import 'package:mime/mime.dart';
 
 class ChatService {
   ChatService._();
@@ -42,6 +45,8 @@ class ChatService {
 
     final now = FieldValue.serverTimestamp();
     final nowTimestamp = Timestamp.now();
+    final replyMap =
+        replyTo != null ? {'metadata': {'replyTo': replyTo}} : null;
     final messageMap = <String, dynamic>{
       'authorId': user.uid,
       'createdAt': now,
@@ -50,7 +55,7 @@ class ChatService {
       'type': 'text',
       'status': types.Status.sent.name,
       'showStatus': true,
-      if (replyTo != null) 'metadata': {'replyTo': replyTo},
+      ...?replyMap,
     };
 
     final lastMessageMap = <String, dynamic>{
@@ -62,6 +67,86 @@ class ChatService {
       'id': messageRef.id,
       'status': types.Status.sent.name,
       'showStatus': true,
+    };
+
+    final batch = firestore.batch();
+    batch.set(messageRef, messageMap);
+    final roomRef = firestore.collection('rooms').doc(roomId);
+    final unreadUpdates = <String, dynamic>{};
+    for (final u in room.users) {
+      if (u.id == user.uid) continue;
+      unreadUpdates['metadata.unreadCounts.${u.id}'] =
+          FieldValue.increment(1);
+    }
+    batch.update(
+      roomRef,
+      {
+        'updatedAt': now,
+        'lastMessages': [lastMessageMap],
+        ...unreadUpdates,
+      },
+    );
+    await batch.commit();
+  }
+
+  Future<void> sendFileMessage({
+    required types.Room room,
+    required PlatformFile file,
+  }) async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+    if (file.bytes == null) {
+      throw StateError('Selected file data is unavailable.');
+    }
+
+    final firestore = FirebaseFirestore.instance;
+    final roomId = room.id;
+    final messageRef = firestore.collection('rooms/$roomId/messages').doc();
+    final fileId = messageRef.id;
+    final storagePath =
+        'chat_uploads/$roomId/${user.uid}/$fileId-${file.name}';
+
+    final mimeType = lookupMimeType(
+      file.name,
+      headerBytes: file.bytes,
+    );
+    final isImage = mimeType?.startsWith('image/') ?? false;
+
+    final storageRef = FirebaseStorage.instance.ref(storagePath);
+    final metadata = SettableMetadata(contentType: mimeType);
+    await storageRef.putData(file.bytes!, metadata);
+    final downloadUrl = await storageRef.getDownloadURL();
+
+    final now = FieldValue.serverTimestamp();
+    final nowTimestamp = Timestamp.now();
+    final mimeTypeMap = mimeType != null ? {'mimeType': mimeType} : null;
+    final messageMap = <String, dynamic>{
+      'authorId': user.uid,
+      'createdAt': now,
+      'updatedAt': now,
+      'type': isImage ? 'image' : 'file',
+      'status': types.Status.sent.name,
+      'showStatus': true,
+      'uri': downloadUrl,
+      'name': file.name,
+      'size': file.size,
+      ...?mimeTypeMap,
+    };
+
+    final previewText = isImage ? 'Photo' : 'File attachment';
+    final lastMessageMap = <String, dynamic>{
+      'authorId': user.uid,
+      'createdAt': nowTimestamp,
+      'updatedAt': nowTimestamp,
+      'type': isImage ? 'image' : 'file',
+      'id': messageRef.id,
+      'status': types.Status.sent.name,
+      'showStatus': true,
+      'text': previewText,
+      'uri': downloadUrl,
+      'name': file.name,
+      'size': file.size,
+      ...?mimeTypeMap,
     };
 
     final batch = firestore.batch();
@@ -267,6 +352,44 @@ class ChatService {
         'id': message.id,
         'status': status.name,
         'showStatus': true,
+      };
+    }
+
+    if (message is types.ImageMessage) {
+      final mimeType = message.metadata?['mimeType'];
+      final mimeTypeMap = mimeType != null ? {'mimeType': mimeType} : null;
+      return {
+        'authorId': message.author.id,
+        'createdAt': createdAt,
+        'updatedAt': updatedAt,
+        'type': 'image',
+        'id': message.id,
+        'status': status.name,
+        'showStatus': true,
+        'text': 'Photo',
+        'uri': message.uri,
+        'name': message.name,
+        'size': message.size,
+        ...?mimeTypeMap,
+      };
+    }
+
+    if (message is types.FileMessage) {
+      final mimeType = message.metadata?['mimeType'];
+      final mimeTypeMap = mimeType != null ? {'mimeType': mimeType} : null;
+      return {
+        'authorId': message.author.id,
+        'createdAt': createdAt,
+        'updatedAt': updatedAt,
+        'type': 'file',
+        'id': message.id,
+        'status': status.name,
+        'showStatus': true,
+        'text': 'File attachment',
+        'uri': message.uri,
+        'name': message.name,
+        'size': message.size,
+        ...?mimeTypeMap,
       };
     }
 

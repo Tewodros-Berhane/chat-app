@@ -11,6 +11,7 @@ import '../features/chats/ui/chats_page.dart';
 import '../features/chats/ui/new_chat_page.dart';
 import '../features/users/data/user_service.dart';
 import '../features/users/ui/profile_page.dart';
+import '../features/users/ui/settings_page.dart';
 
 class AppRouter {
   static final AuthStateNotifier authNotifier = AuthStateNotifier();
@@ -38,6 +39,10 @@ class AppRouter {
       GoRoute(
         path: '/new-chat',
         builder: (context, state) => const NewChatPage(),
+      ),
+      GoRoute(
+        path: '/settings',
+        builder: (context, state) => const SettingsPage(),
       ),
       GoRoute(
         path: '/chat/:roomId',
