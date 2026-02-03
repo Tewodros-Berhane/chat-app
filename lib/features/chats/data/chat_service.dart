@@ -29,6 +29,7 @@ class ChatService {
   Future<void> sendTextMessage({
     required types.Room room,
     required String text,
+    Map<String, dynamic>? replyTo,
   }) async {
     final trimmed = text.trim();
     if (trimmed.isEmpty) return;
@@ -49,6 +50,7 @@ class ChatService {
       'type': 'text',
       'status': types.Status.sent.name,
       'showStatus': true,
+      if (replyTo != null) 'metadata': {'replyTo': replyTo},
     };
 
     final lastMessageMap = <String, dynamic>{
@@ -80,6 +82,61 @@ class ChatService {
       },
     );
     await batch.commit();
+  }
+
+  Future<void> editTextMessage({
+    required String roomId,
+    required types.TextMessage message,
+    required String newText,
+    required bool updateRoomLast,
+  }) async {
+    final firestore = FirebaseFirestore.instance;
+    final messageRef =
+        firestore.collection('rooms/$roomId/messages').doc(message.id);
+    await messageRef.update({
+      'text': newText,
+      'updatedAt': FieldValue.serverTimestamp(),
+      'metadata.edited': true,
+    });
+
+    if (updateRoomLast) {
+      await firestore.collection('rooms').doc(roomId).update({
+        'lastMessages': [
+          _lastMessageFrom(
+            message.copyWith(text: newText),
+            message.status ?? types.Status.sent,
+          ),
+        ],
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+    }
+  }
+
+  Future<void> deleteMessage({
+    required String roomId,
+    required types.TextMessage message,
+    required bool updateRoomLast,
+  }) async {
+    final firestore = FirebaseFirestore.instance;
+    final messageRef =
+        firestore.collection('rooms/$roomId/messages').doc(message.id);
+    await messageRef.update({
+      'text': 'Message deleted',
+      'updatedAt': FieldValue.serverTimestamp(),
+      'metadata.deleted': true,
+    });
+
+    if (updateRoomLast) {
+      await firestore.collection('rooms').doc(roomId).update({
+        'lastMessages': [
+          _lastMessageFrom(
+            message.copyWith(text: 'Message deleted'),
+            message.status ?? types.Status.sent,
+          ),
+        ],
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+    }
   }
 
   Future<void> markMessagesSeen({

@@ -16,10 +16,19 @@ class ChatsPage extends StatefulWidget {
 }
 
 class _ChatsPageState extends State<ChatsPage> {
+  final TextEditingController _searchController = TextEditingController();
+  String _query = '';
+
   @override
   void initState() {
     super.initState();
     ChatService.instance.repairRoomsForCurrentUser();
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
   }
 
   @override
@@ -35,9 +44,34 @@ class _ChatsPageState extends State<ChatsPage> {
           ),
         ],
       ),
-      body: StreamBuilder<List<types.Room>>(
-        stream: ChatService.instance.roomsStream(),
-        builder: (context, snapshot) {
+      body: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+            child: TextField(
+              controller: _searchController,
+              onChanged: (value) {
+                setState(() => _query = value.trim().toLowerCase());
+              },
+              decoration: InputDecoration(
+                hintText: 'Search chats',
+                prefixIcon: const Icon(Icons.search_rounded),
+                suffixIcon: _query.isEmpty
+                    ? null
+                    : IconButton(
+                        onPressed: () {
+                          _searchController.clear();
+                          setState(() => _query = '');
+                        },
+                        icon: const Icon(Icons.close_rounded),
+                      ),
+              ),
+            ),
+          ),
+          Expanded(
+            child: StreamBuilder<List<types.Room>>(
+              stream: ChatService.instance.roomsStream(),
+              builder: (context, snapshot) {
           if (snapshot.hasError) {
             return Center(
               child: Padding(
@@ -76,7 +110,19 @@ class _ChatsPageState extends State<ChatsPage> {
           if (rooms.isNotEmpty) {
             ChatService.instance.markLastMessagesDelivered(rooms);
           }
-          if (rooms.isEmpty) {
+          final filteredRooms = _query.isEmpty
+              ? rooms
+              : rooms.where((room) {
+                  final title = _roomTitle(
+                        room,
+                        FirebaseAuth.instance.currentUser?.uid,
+                      )
+                      .toLowerCase();
+                  final lastText = _lastMessagePreview(room).toLowerCase();
+                  return title.contains(_query) || lastText.contains(_query);
+                }).toList();
+
+          if (filteredRooms.isEmpty) {
             return _EmptyState(
               onStart: () => context.push('/new-chat'),
             );
@@ -85,13 +131,16 @@ class _ChatsPageState extends State<ChatsPage> {
           return ListView.separated(
             padding: const EdgeInsets.fromLTRB(16, 8, 16, 100),
             itemBuilder: (context, index) {
-              final room = rooms[index];
+              final room = filteredRooms[index];
               return _RoomTile(room: room);
             },
             separatorBuilder: (_, _) => const SizedBox(height: 12),
-            itemCount: rooms.length,
+            itemCount: filteredRooms.length,
           );
         },
+      ),
+          ),
+        ],
       ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => context.push('/new-chat'),
@@ -99,6 +148,35 @@ class _ChatsPageState extends State<ChatsPage> {
         label: const Text('New chat'),
       ),
     );
+  }
+
+  String _roomTitle(types.Room room, String? currentUserId) {
+    if (room.name != null && room.name!.trim().isNotEmpty) {
+      return room.name!.trim();
+    }
+    if (room.type == types.RoomType.direct && currentUserId != null) {
+      final otherUser = room.users.firstWhere(
+        (user) => user.id != currentUserId,
+        orElse: () => const types.User(id: ''),
+      );
+      final name = '${otherUser.firstName ?? ''} ${otherUser.lastName ?? ''}'
+          .trim();
+      return name.isNotEmpty ? name : 'Unknown user';
+    }
+    return 'Chat room';
+  }
+
+  String _lastMessagePreview(types.Room room) {
+    final last = room.lastMessages?.isNotEmpty == true
+        ? room.lastMessages!.first
+        : null;
+
+    if (last == null) return '';
+
+    if (last is types.TextMessage) return last.text;
+    if (last is types.ImageMessage) return 'Photo message';
+    if (last is types.FileMessage) return 'File attachment';
+    return 'New message';
   }
 }
 

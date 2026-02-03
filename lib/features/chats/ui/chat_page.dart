@@ -164,6 +164,7 @@ class _MessagesView extends StatefulWidget {
 
 class _MessagesViewState extends State<_MessagesView> {
   Timer? _typingTimer;
+  types.Message? _replyTo;
 
   @override
   void dispose() {
@@ -220,6 +221,123 @@ class _MessagesViewState extends State<_MessagesView> {
     }
   }
 
+  void _setReply(types.Message message) {
+    setState(() {
+      _replyTo = message;
+    });
+  }
+
+  void _clearAction() {
+    setState(() {
+      _replyTo = null;
+    });
+  }
+
+  Future<void> _handleDelete(types.TextMessage message, bool isLast) async {
+    await ChatService.instance.deleteMessage(
+      roomId: widget.room.id,
+      message: message,
+      updateRoomLast: isLast,
+    );
+  }
+
+  Future<void> _handleEdit(
+    types.TextMessage message,
+    String text,
+    bool isLast,
+  ) async {
+    await ChatService.instance.editTextMessage(
+      roomId: widget.room.id,
+      message: message,
+      newText: text,
+      updateRoomLast: isLast,
+    );
+  }
+
+  Future<void> _showEditDialog(
+    types.TextMessage message,
+    bool isLast,
+  ) async {
+    final controller = TextEditingController(text: message.text);
+    final result = await showDialog<String>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('Edit message'),
+          content: TextField(
+            controller: controller,
+            maxLines: 3,
+            decoration: const InputDecoration(
+              hintText: 'Update your message',
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(
+                context,
+                controller.text.trim(),
+              ),
+              child: const Text('Save'),
+            ),
+          ],
+        );
+      },
+    );
+    controller.dispose();
+    if (result == null || result.isEmpty) return;
+    await _handleEdit(message, result, isLast);
+  }
+
+  void _showMessageActions(types.Message message, List<types.Message> messages) {
+    final currentUserId = FirebaseAuth.instance.currentUser?.uid;
+    final isMine = currentUserId != null && message.author.id == currentUserId;
+    final isText = message is types.TextMessage;
+    final isLast = messages.isNotEmpty && messages.first.id == message.id;
+
+    showModalBottomSheet(
+      context: context,
+      builder: (context) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const Icon(Icons.reply_rounded),
+                title: const Text('Reply'),
+                onTap: () {
+                  Navigator.pop(context);
+                  _setReply(message);
+                },
+              ),
+              if (isMine && isText)
+                ListTile(
+                  leading: const Icon(Icons.edit_rounded),
+                  title: const Text('Edit'),
+                  onTap: () {
+                    Navigator.pop(context);
+                    _showEditDialog(message, isLast);
+                  },
+                ),
+              if (isMine && isText)
+                ListTile(
+                  leading: const Icon(Icons.delete_outline_rounded),
+                  title: const Text('Delete'),
+                  onTap: () {
+                    Navigator.pop(context);
+                    _handleDelete(message, isLast);
+                  },
+                ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
   double _dynamicMaxWidth(
     BuildContext context,
     types.Message message,
@@ -270,6 +388,8 @@ class _MessagesViewState extends State<_MessagesView> {
             return Chat(
               messages: messages,
               messageWidthRatio: widthRatio,
+              onMessageLongPress: (context, message) =>
+                  _showMessageActions(message, messages),
               inputOptions: InputOptions(
                 onTextChanged: (value) {
                   final trimmed = value.trim();
@@ -302,6 +422,64 @@ class _MessagesViewState extends State<_MessagesView> {
                 }) =>
                     const SizedBox.shrink(),
               ),
+              listBottomWidget: _replyTo != null
+                  ? Padding(
+                      padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
+                      child: Container(
+                        padding: const EdgeInsets.fromLTRB(14, 10, 8, 10),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(
+                            color:
+                                Theme.of(context).colorScheme.outlineVariant,
+                          ),
+                        ),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'Replying to ${_replyTo?.author.firstName ?? 'Message'}',
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .labelSmall
+                                        ?.copyWith(
+                                          fontWeight: FontWeight.w700,
+                                          color: AppColors.primary,
+                                        ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    _replyTo is types.TextMessage
+                                        ? (_replyTo as types.TextMessage).text
+                                        : 'Message',
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .bodySmall
+                                        ?.copyWith(
+                                          color: Theme.of(context)
+                                              .colorScheme
+                                              .onSurface
+                                              .withAlpha(160),
+                                        ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            IconButton(
+                              onPressed: _clearAction,
+                              icon: const Icon(Icons.close_rounded),
+                            ),
+                          ],
+                        ),
+                      ),
+                    )
+                  : null,
               customStatusBuilder: (_, {required BuildContext context}) =>
                   const SizedBox.shrink(),
               textMessageBuilder: (message,
@@ -314,6 +492,15 @@ class _MessagesViewState extends State<_MessagesView> {
                     : Theme.of(context).colorScheme.onSurface.withAlpha(140);
                 final baseMax = MediaQuery.of(context).size.width * widthRatio;
                 final maxWidth = _dynamicMaxWidth(context, message, baseMax);
+                final reply = message.metadata?['replyTo'];
+                final replyText = reply is Map<String, dynamic>
+                    ? reply['text'] as String?
+                    : null;
+                final replyAuthor = reply is Map<String, dynamic>
+                    ? reply['authorName'] as String?
+                    : null;
+                final isDeleted = message.metadata?['deleted'] == true;
+                final isEdited = message.metadata?['edited'] == true;
 
                 return ConstrainedBox(
                   constraints: BoxConstraints(maxWidth: maxWidth),
@@ -322,11 +509,56 @@ class _MessagesViewState extends State<_MessagesView> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
+                        if (replyText != null)
+                          Container(
+                            margin: const EdgeInsets.only(bottom: 6),
+                            padding: const EdgeInsets.fromLTRB(10, 6, 10, 6),
+                            decoration: BoxDecoration(
+                              color: isMe
+                                  ? Colors.white.withAlpha(40)
+                                  : Colors.black.withAlpha(12),
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  replyAuthor ?? 'Reply',
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .labelSmall
+                                      ?.copyWith(
+                                        fontWeight: FontWeight.w700,
+                                        color: isMe
+                                            ? Colors.white
+                                            : AppColors.ink,
+                                      ),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  replyText,
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .bodySmall
+                                      ?.copyWith(
+                                        color: isMe
+                                            ? Colors.white.withAlpha(200)
+                                            : AppColors.ink,
+                                      ),
+                                ),
+                              ],
+                            ),
+                          ),
                         Text(
-                          message.text,
+                          isDeleted ? 'Message deleted' : message.text,
                           style:
                               Theme.of(context).textTheme.bodyMedium?.copyWith(
                                     color: textColor,
+                                    fontStyle: isDeleted
+                                        ? FontStyle.italic
+                                        : FontStyle.normal,
                                   ),
                         ),
                         const SizedBox(height: 6),
@@ -345,6 +577,20 @@ class _MessagesViewState extends State<_MessagesView> {
                                       fontSize: 11,
                                     ),
                               ),
+                              if (isEdited) ...[
+                                const SizedBox(width: 6),
+                                Text(
+                                  'edited',
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .bodySmall
+                                      ?.copyWith(
+                                        color: metaColor,
+                                        fontSize: 11,
+                                        fontStyle: FontStyle.italic,
+                                      ),
+                                ),
+                              ],
                               if (isMe) ...[
                                 const SizedBox(width: 4),
                                 _statusIcon(message.status),
@@ -358,10 +604,22 @@ class _MessagesViewState extends State<_MessagesView> {
                 );
               },
               onSendPressed: (partial) {
+                final trimmed = partial.text.trim();
+                if (trimmed.isEmpty) return;
+                final replyTo = _replyTo;
                 ChatService.instance.sendTextMessage(
                   room: widget.room,
-                  text: partial.text,
+                  text: trimmed,
+                  replyTo: replyTo is types.TextMessage
+                      ? {
+                          'id': replyTo.id,
+                          'text': replyTo.text,
+                          'authorId': replyTo.author.id,
+                          'authorName': replyTo.author.firstName ?? 'User',
+                        }
+                      : null,
                 );
+                _clearAction();
                 ChatService.instance.setTyping(
                   roomId: widget.room.id,
                   isTyping: false,
