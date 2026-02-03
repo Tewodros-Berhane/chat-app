@@ -16,9 +16,6 @@ class ChatsPage extends StatefulWidget {
 }
 
 class _ChatsPageState extends State<ChatsPage> {
-  final TextEditingController _searchController = TextEditingController();
-  String _query = '';
-
   @override
   void initState() {
     super.initState();
@@ -26,157 +23,112 @@ class _ChatsPageState extends State<ChatsPage> {
   }
 
   @override
-  void dispose() {
-    _searchController.dispose();
-    super.dispose();
-  }
-
-  @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Chats'),
-        actions: [
-          IconButton(
-            onPressed: AuthService.instance.signOut,
-            icon: const Icon(Icons.logout_rounded),
-            tooltip: 'Sign out',
-          ),
-        ],
-      ),
-      body: Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
-            child: TextField(
-              controller: _searchController,
-              onChanged: (value) {
-                setState(() => _query = value.trim().toLowerCase());
-              },
-              decoration: InputDecoration(
-                hintText: 'Search chats',
-                prefixIcon: const Icon(Icons.search_rounded),
-                suffixIcon: _query.isEmpty
-                    ? null
-                    : IconButton(
-                        onPressed: () {
-                          _searchController.clear();
-                          setState(() => _query = '');
-                        },
-                        icon: const Icon(Icons.close_rounded),
-                      ),
+      backgroundColor: const Color(0xFFF7F7FA),
+      body: SafeArea(
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+              child: Row(
+                children: [
+                  TextButton(
+                    onPressed: AuthService.instance.signOut,
+                    child: const Text('Edit'),
+                  ),
+                  const Spacer(),
+                  Text(
+                    'Chats',
+                    style: theme.textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const Spacer(),
+                  IconButton(
+                    onPressed: () => context.push('/new-chat'),
+                    icon: const Icon(Icons.edit_outlined),
+                    tooltip: 'New chat',
+                  ),
+                ],
               ),
             ),
-          ),
-          Expanded(
-            child: StreamBuilder<List<types.Room>>(
-              stream: ChatService.instance.roomsStream(),
-              builder: (context, snapshot) {
-          if (snapshot.hasError) {
-            return Center(
-              child: Padding(
-                padding: const EdgeInsets.all(24),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Icon(Icons.error_outline_rounded, size: 36),
-                    const SizedBox(height: 12),
-                    Text(
-                      'Could not load chats.',
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                            fontWeight: FontWeight.w700,
-                          ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    'Broadcast Lists',
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: theme.colorScheme.primary,
+                      fontWeight: FontWeight.w600,
                     ),
-                    const SizedBox(height: 6),
-                    Text(
-                      '${snapshot.error}',
-                      textAlign: TextAlign.center,
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            color:
-                                Theme.of(context).colorScheme.onSurface.withAlpha(153),
-                          ),
+                  ),
+                  Text(
+                    'New Group',
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: theme.colorScheme.primary,
+                      fontWeight: FontWeight.w600,
                     ),
-                  ],
-                ),
+                  ),
+                ],
               ),
-            );
-          }
+            ),
+            const Divider(height: 1),
+            Expanded(
+              child: StreamBuilder<List<types.Room>>(
+                stream: ChatService.instance.roomsStream(),
+                builder: (context, snapshot) {
+                  if (snapshot.hasError) {
+                    return Center(
+                      child: Padding(
+                        padding: const EdgeInsets.all(24),
+                        child: Text(
+                          'Could not load chats.\n${snapshot.error}',
+                          textAlign: TextAlign.center,
+                          style: theme.textTheme.bodyMedium,
+                        ),
+                      ),
+                    );
+                  }
 
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
-          }
+                  if (snapshot.connectionState == ConnectionState.waiting) {
+                    return const Center(child: CircularProgressIndicator());
+                  }
 
-          final rooms = snapshot.data ?? [];
-          if (rooms.isNotEmpty) {
-            ChatService.instance.markLastMessagesDelivered(rooms);
-          }
-          final filteredRooms = _query.isEmpty
-              ? rooms
-              : rooms.where((room) {
-                  final title = _roomTitle(
-                        room,
-                        FirebaseAuth.instance.currentUser?.uid,
-                      )
-                      .toLowerCase();
-                  final lastText = _lastMessagePreview(room).toLowerCase();
-                  return title.contains(_query) || lastText.contains(_query);
-                }).toList();
+                  final rooms = snapshot.data ?? [];
+                  if (rooms.isNotEmpty) {
+                    ChatService.instance.markLastMessagesDelivered(rooms);
+                  }
 
-          if (filteredRooms.isEmpty) {
-            return _EmptyState(
-              onStart: () => context.push('/new-chat'),
-            );
-          }
+                  if (rooms.isEmpty) {
+                    return _EmptyState(
+                      onStart: () => context.push('/new-chat'),
+                    );
+                  }
 
-          return ListView.separated(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 100),
-            itemBuilder: (context, index) {
-              final room = filteredRooms[index];
-              return _RoomTile(room: room);
-            },
-            separatorBuilder: (_, _) => const SizedBox(height: 12),
-            itemCount: filteredRooms.length,
-          );
-        },
+                  return ListView.separated(
+                    padding: const EdgeInsets.fromLTRB(0, 4, 0, 80),
+                    itemBuilder: (context, index) {
+                      final room = rooms[index];
+                      return _RoomTile(room: room);
+                    },
+                    separatorBuilder: (_, _) => const Divider(height: 1),
+                    itemCount: rooms.length,
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
       ),
-          ),
-        ],
-      ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => context.push('/new-chat'),
-        icon: const Icon(Icons.edit_rounded),
-        label: const Text('New chat'),
+      bottomNavigationBar: _BottomBar(
+        onChatsTap: () {},
       ),
     );
-  }
-
-  String _roomTitle(types.Room room, String? currentUserId) {
-    if (room.name != null && room.name!.trim().isNotEmpty) {
-      return room.name!.trim();
-    }
-    if (room.type == types.RoomType.direct && currentUserId != null) {
-      final otherUser = room.users.firstWhere(
-        (user) => user.id != currentUserId,
-        orElse: () => const types.User(id: ''),
-      );
-      final name = '${otherUser.firstName ?? ''} ${otherUser.lastName ?? ''}'
-          .trim();
-      return name.isNotEmpty ? name : 'Unknown user';
-    }
-    return 'Chat room';
-  }
-
-  String _lastMessagePreview(types.Room room) {
-    final last = room.lastMessages?.isNotEmpty == true
-        ? room.lastMessages!.first
-        : null;
-
-    if (last == null) return '';
-
-    if (last is types.TextMessage) return last.text;
-    if (last is types.ImageMessage) return 'Photo message';
-    if (last is types.FileMessage) return 'File attachment';
-    return 'New message';
   }
 }
 
@@ -195,40 +147,29 @@ class _RoomTile extends StatelessWidget {
     final unreadCount = _unreadCount(room, currentUserId);
     final lastMessage = _lastMessage(room);
     final avatarColor = colorFromId(room.id);
+    final avatarUrl = _otherUserAvatar(room, currentUserId);
 
     return InkWell(
-      borderRadius: BorderRadius.circular(20),
-      onTap: () {
-        context.push('/chat/${room.id}', extra: room);
-      },
-      child: Ink(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: theme.colorScheme.outlineVariant),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withAlpha(10),
-              blurRadius: 16,
-              offset: const Offset(0, 8),
-            ),
-          ],
-        ),
+      onTap: () => context.push('/chat/${room.id}', extra: room),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
         child: Row(
           children: [
             CircleAvatar(
               radius: 24,
               backgroundColor: avatarColor.withAlpha(38),
-              child: Text(
-                title.isNotEmpty ? title[0].toUpperCase() : '?',
-                style: theme.textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.w700,
-                  color: avatarColor,
-                ),
-              ),
+              backgroundImage: avatarUrl != null ? NetworkImage(avatarUrl) : null,
+              child: avatarUrl == null
+                  ? Text(
+                      title.isNotEmpty ? title[0].toUpperCase() : '?',
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w700,
+                        color: avatarColor,
+                      ),
+                    )
+                  : null,
             ),
-            const SizedBox(width: 16),
+            const SizedBox(width: 12),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -253,8 +194,8 @@ class _RoomTile extends StatelessWidget {
                       Expanded(
                         child: Text(
                           subtitle,
-                          style: theme.textTheme.bodyMedium?.copyWith(
-                            color: theme.colorScheme.onSurface.withAlpha(166),
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: theme.colorScheme.onSurface.withAlpha(150),
                           ),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
@@ -265,7 +206,7 @@ class _RoomTile extends StatelessWidget {
                 ],
               ),
             ),
-            const SizedBox(width: 12),
+            const SizedBox(width: 10),
             Column(
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
@@ -278,8 +219,10 @@ class _RoomTile extends StatelessWidget {
                 const SizedBox(height: 6),
                 if (unreadCount > 0)
                   Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 4,
+                    ),
                     decoration: BoxDecoration(
                       color: theme.colorScheme.primary,
                       borderRadius: BorderRadius.circular(999),
@@ -293,6 +236,11 @@ class _RoomTile extends StatelessWidget {
                     ),
                   ),
               ],
+            ),
+            const SizedBox(width: 4),
+            Icon(
+              Icons.chevron_right_rounded,
+              color: theme.colorScheme.onSurface.withAlpha(120),
             ),
           ],
         ),
@@ -342,9 +290,7 @@ class _RoomTile extends StatelessWidget {
         if (raw is int) return raw;
       }
     }
-    final last = room.lastMessages?.isNotEmpty == true
-        ? room.lastMessages!.first
-        : null;
+    final last = _lastMessage(room);
     if (last == null) return 0;
     if (last.author.id == currentUserId) return 0;
     return last.status != types.Status.seen ? 1 : 0;
@@ -356,21 +302,22 @@ class _RoomTile extends StatelessWidget {
         : null;
   }
 
+  String? _otherUserAvatar(types.Room room, String? currentUserId) {
+    if (room.type != types.RoomType.direct || currentUserId == null) return null;
+    final otherUser = room.users.firstWhere(
+      (user) => user.id != currentUserId,
+      orElse: () => const types.User(id: ''),
+    );
+    return otherUser.imageUrl;
+  }
+
   Widget _statusIcon(ThemeData theme, types.Status? status) {
     final muted = theme.colorScheme.onSurface.withAlpha(140);
     switch (status) {
       case types.Status.sent:
-        return Icon(
-          Icons.done_rounded,
-          size: 16,
-          color: muted,
-        );
+        return Icon(Icons.done_rounded, size: 16, color: muted);
       case types.Status.delivered:
-        return Icon(
-          Icons.done_all_rounded,
-          size: 16,
-          color: muted,
-        );
+        return Icon(Icons.done_all_rounded, size: 16, color: muted);
       case types.Status.seen:
         return const Icon(
           Icons.done_all_rounded,
@@ -378,20 +325,54 @@ class _RoomTile extends StatelessWidget {
           color: Color(0xFF7DD3FC),
         );
       case types.Status.sending:
-        return Icon(
-          Icons.schedule_rounded,
-          size: 14,
-          color: muted,
-        );
+        return Icon(Icons.schedule_rounded, size: 14, color: muted);
       case types.Status.error:
-        return Icon(
-          Icons.error_outline_rounded,
-          size: 16,
-          color: muted,
-        );
+        return Icon(Icons.error_outline_rounded, size: 16, color: muted);
       default:
         return const SizedBox(width: 16);
     }
+  }
+}
+
+class _BottomBar extends StatelessWidget {
+  const _BottomBar({required this.onChatsTap});
+
+  final VoidCallback onChatsTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return BottomNavigationBar(
+      currentIndex: 2,
+      onTap: (index) {
+        if (index == 2) onChatsTap();
+      },
+      selectedItemColor: theme.colorScheme.primary,
+      unselectedItemColor: theme.colorScheme.onSurface.withAlpha(140),
+      items: const [
+        BottomNavigationBarItem(
+          icon: Icon(Icons.radio_button_checked_rounded),
+          label: 'Status',
+        ),
+        BottomNavigationBarItem(
+          icon: Icon(Icons.call_outlined),
+          label: 'Calls',
+        ),
+        BottomNavigationBarItem(
+          icon: Icon(Icons.chat_bubble_outline_rounded),
+          label: 'Chats',
+        ),
+        BottomNavigationBarItem(
+          icon: Icon(Icons.camera_alt_outlined),
+          label: 'Camera',
+        ),
+        BottomNavigationBarItem(
+          icon: Icon(Icons.settings_outlined),
+          label: 'Settings',
+        ),
+      ],
+    );
   }
 }
 
